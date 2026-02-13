@@ -11,6 +11,7 @@ func (t BoxType) String() string {
 // Known box types.
 var (
 	TypeFtyp = BoxType{'f', 't', 'y', 'p'}
+	TypeStyp = BoxType{'s', 't', 'y', 'p'} // Segment type box (used in fragmented MP4)
 	TypeMoov = BoxType{'m', 'o', 'o', 'v'}
 	TypeMvhd = BoxType{'m', 'v', 'h', 'd'}
 	TypeTrak = BoxType{'t', 'r', 'a', 'k'}
@@ -51,6 +52,7 @@ var (
 	TypeSubs = BoxType{'s', 'u', 'b', 's'}
 	TypeSaiz = BoxType{'s', 'a', 'i', 'z'}
 	TypeSaio = BoxType{'s', 'a', 'i', 'o'}
+	// Fragment movie boxes
 	TypeMvex = BoxType{'m', 'v', 'e', 'x'}
 	TypeMehd = BoxType{'m', 'e', 'h', 'd'}
 	TypeTrex = BoxType{'t', 'r', 'e', 'x'}
@@ -61,13 +63,20 @@ var (
 	TypeTfhd = BoxType{'t', 'f', 'h', 'd'}
 	TypeTfdt = BoxType{'t', 'f', 'd', 't'}
 	TypeTrun = BoxType{'t', 'r', 'u', 'n'}
+	TypeSidx = BoxType{'s', 'i', 'd', 'x'} // Segment index box
+	TypeEmsg = BoxType{'e', 'm', 's', 'g'} // Event message box
+	// Metadata boxes
 	TypeMeta = BoxType{'m', 'e', 't', 'a'}
 	TypeUdta = BoxType{'u', 'd', 't', 'a'}
+	// Data boxes
 	TypeMdat = BoxType{'m', 'd', 'a', 't'}
 	TypeFree = BoxType{'f', 'r', 'e', 'e'}
 	TypeSkip = BoxType{'s', 'k', 'i', 'p'}
+	// Sample entry boxes
 	TypeAvc1 = BoxType{'a', 'v', 'c', '1'}
 	TypeAvcC = BoxType{'a', 'v', 'c', 'C'}
+	TypeBtrt = BoxType{'b', 't', 'r', 't'} // MPEG-4 Bit rate box
+	TypePasp = BoxType{'p', 'a', 's', 'p'} // Pixel aspect ratio box
 	TypeMp4a = BoxType{'m', 'p', '4', 'a'}
 	TypeEsds = BoxType{'e', 's', 'd', 's'}
 )
@@ -82,7 +91,7 @@ func IsFullBox(t BoxType) bool {
 		TypeMeta, TypeEsds, TypeMehd, TypeTrex,
 		TypeMfhd, TypeTfhd, TypeTfdt, TypeTrun,
 		TypeSbgp, TypeSgpd, TypeSaiz, TypeSaio,
-		TypeCslg, TypeSdtp:
+		TypeCslg, TypeSdtp, TypeSidx, TypeEmsg:
 		return true
 	}
 	return false

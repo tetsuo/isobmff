@@ -209,7 +209,7 @@ func printBoxInfo(r *mp4.Reader) {
 		fmt.Printf(" entries=%d", it.Count())
 
 	case mp4.TypeCtts:
-		it := mp4.NewCttsIter(r.Data())
+		it := mp4.NewCttsIter(r.Data(), r.Version())
 		fmt.Printf(" entries=%d", it.Count())
 
 	case mp4.TypeStsc:

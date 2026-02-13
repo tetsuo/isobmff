@@ -133,24 +133,29 @@ func (it *SttsIter) Next() (SttsEntry, bool) {
 // CttsEntry is a composition offset entry.
 type CttsEntry struct {
 	Count  uint32
-	Offset int32
+	Offset int32 // Signed offset (version 1), or unsigned treated as signed (version 0)
 }
 
 // CttsIter iterates over ctts entries.
 type CttsIter struct {
-	buf   []byte
-	count uint32
-	index uint32
+	buf     []byte
+	count   uint32
+	index   uint32
+	version uint8
 }
 
 // NewCttsIter creates an iterator from ctts box data.
-func NewCttsIter(data []byte) CttsIter {
+// version should be 0 or 1 from the ctts box version field.
+// Version 0: offsets are uint32 (but interpreted as composition time offset)
+// Version 1: offsets are int32 (signed composition time offset)
+func NewCttsIter(data []byte, version uint8) CttsIter {
 	if len(data) < 4 {
 		return CttsIter{}
 	}
 	return CttsIter{
-		buf:   data,
-		count: be.Uint32(data[0:4]),
+		buf:     data,
+		count:   be.Uint32(data[0:4]),
+		version: version,
 	}
 }
 
@@ -167,8 +172,16 @@ func (it *CttsIter) Next() (CttsEntry, bool) {
 		return CttsEntry{}, false
 	}
 	e := CttsEntry{
-		Count:  be.Uint32(it.buf[offset:]),
-		Offset: int32(be.Uint32(it.buf[offset+4:])),
+		Count: be.Uint32(it.buf[offset:]),
+	}
+	// Version 0: uint32 offset (but typically small positive values)
+	// Version 1: int32 offset (can be negative)
+	if it.version == 0 {
+		// In version 0, the value is uint32 but should be interpreted as offset
+		e.Offset = int32(be.Uint32(it.buf[offset+4:]))
+	} else {
+		// In version 1, the value is explicitly signed
+		e.Offset = int32(be.Uint32(it.buf[offset+4:]))
 	}
 	it.index++
 	return e, true
@@ -298,6 +311,17 @@ const (
 	TrunSampleSizePresent                  = 0x000200
 	TrunSampleFlagsPresent                 = 0x000400
 	TrunSampleCompositionTimeOffsetPresent = 0x000800
+)
+
+// Tfhd flags (Track Fragment Header Box).
+const (
+	TfhdBaseDataOffsetPresent         = 0x000001
+	TfhdSampleDescriptionIndexPresent = 0x000002
+	TfhdDefaultSampleDurationPresent  = 0x000008
+	TfhdDefaultSampleSizePresent      = 0x000010
+	TfhdDefaultSampleFlagsPresent     = 0x000020
+	TfhdDurationIsEmpty               = 0x010000
+	TfhdDefaultBaseIsMoof             = 0x020000
 )
 
 // TrunIter iterates over trun entries.
