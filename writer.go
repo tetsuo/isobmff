@@ -464,3 +464,50 @@ func (w *Writer) WriteAudioSampleEntry(dataRefIdx, channelCount, sampleSize uint
 	w.putZeros(4)             // predefined + reserved
 	w.putUint32(sampleRate)   // sample rate (16.16 fixed point)
 }
+
+// WriteStyp writes a segment type box (same format as ftyp).
+func (w *Writer) WriteStyp(brand [4]byte, brandVersion uint32, compat [][4]byte) {
+	w.StartBox(TypeStyp)
+	w.putBytes(brand[:])
+	w.putUint32(brandVersion)
+	for _, c := range compat {
+		w.putBytes(c[:])
+	}
+	w.EndBox()
+}
+
+// SidxEntry represents one reference in a sidx box.
+type SidxEntry struct {
+	ReferenceType  bool   // false = media, true = sub-sidx
+	ReferencedSize uint32 // size in bytes of the referenced material
+	SubsegDuration uint32 // duration in timescale units
+	StartsWithSAP  bool   // starts with a stream access point
+	SAPType        uint8  // SAP type (1-6)
+}
+
+// WriteSidx writes a segment index box (version 1, 64-bit times).
+func (w *Writer) WriteSidx(trackID uint32, timescale uint32, earliestPTS uint64, firstOffset uint64, entries []SidxEntry) {
+	w.StartFullBox(TypeSidx, 1, 0)
+	w.putUint32(trackID) // reference_ID
+	w.putUint32(timescale)
+	w.putUint64(earliestPTS)          // earliest_presentation_time
+	w.putUint64(firstOffset)          // first_offset
+	w.putUint16(0)                    // reserved
+	w.putUint16(uint16(len(entries))) // reference_count
+	for _, e := range entries {
+		var refTypeAndSize uint32
+		if e.ReferenceType {
+			refTypeAndSize = 0x80000000
+		}
+		refTypeAndSize |= e.ReferencedSize & 0x7FFFFFFF
+		w.putUint32(refTypeAndSize)
+		w.putUint32(e.SubsegDuration)
+		var sapField uint32
+		if e.StartsWithSAP {
+			sapField = 0x80000000
+		}
+		sapField |= uint32(e.SAPType) << 28
+		w.putUint32(sapField)
+	}
+	w.EndBox()
+}
