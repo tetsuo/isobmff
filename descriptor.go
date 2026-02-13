@@ -1,110 +1,110 @@
 package mp4
 
-// descriptor implements MPEG-4 descriptor parsing for esds boxes.
+import "strconv"
 
-var tagToName = map[byte]string{
-	0x03: "ESDescriptor",
-	0x04: "DecoderConfigDescriptor",
-	0x05: "DecoderSpecificInfo",
-	0x06: "SLConfigDescriptor",
-}
-
-type descriptor struct {
-	tag      byte
-	tagName  string
-	length   int
-	oti      byte
-	buffer   []byte
-	children map[string]*descriptor
-}
-
-func decodeDescriptor(buf []byte, start, end int) *descriptor {
-	if start >= end {
-		return nil
-	}
-	tag := buf[start]
-	ptr := start + 1
-	length := 0
-	for ptr < end {
-		lenByte := buf[ptr]
-		ptr++
-		length = (length << 7) | int(lenByte&0x7f)
-		if lenByte&0x80 == 0 {
-			break
-		}
+// ReadEsdsCodec extracts the MIME codec string from esds box data.
+// It parses the MPEG-4 descriptor chain to find the OTI (Object Type Indication)
+// and audio configuration. Returns a string like "40.2" for AAC-LC.
+func ReadEsdsCodec(data []byte) string {
+	if len(data) < 2 {
+		return ""
 	}
 
-	tagName := tagToName[tag]
-	d := &descriptor{
-		tag:      tag,
-		tagName:  tagName,
-		length:   (ptr - start) + length,
-		children: make(map[string]*descriptor),
+	// Expect ESDescriptor (tag 0x03)
+	ptr, end := 0, len(data)
+	if data[ptr] != 0x03 {
+		return ""
+	}
+	ptr++
+
+	// Skip length bytes (variable-length encoding)
+	ptr = skipDescriptorLength(data, ptr, end)
+	if ptr < 0 || ptr+3 > end {
+		return ""
 	}
 
-	switch tagName {
-	case "ESDescriptor":
-		decodeESDescriptor(d, buf, ptr, end)
-	case "DecoderConfigDescriptor":
-		decodeDecoderConfigDescriptor(d, buf, ptr, end)
-	case "DecoderSpecificInfo":
-		dEnd := ptr + length
-		if dEnd > end {
-			dEnd = end
-		}
-		d.buffer = buf[ptr:dEnd]
-	default:
-		dEnd := min(ptr+length, end)
-		d.buffer = buf[ptr:dEnd]
-	}
+	// ES_ID (2 bytes) + stream dependency flags (1 byte)
+	flags := data[ptr+2]
+	ptr += 3
 
-	return d
-}
-
-func decodeDescriptorArray(buf []byte, start, end int) map[string]*descriptor {
-	m := make(map[string]*descriptor)
-	ptr := start
-	for ptr+2 <= end {
-		desc := decodeDescriptor(buf, ptr, end)
-		if desc == nil {
-			break
-		}
-		ptr += desc.length
-		name := desc.tagName
-		if name == "" {
-			continue
-		}
-		m[name] = desc
-	}
-	return m
-}
-
-func decodeESDescriptor(d *descriptor, buf []byte, start, end int) {
-	if start+3 > end {
-		return
-	}
-	flags := buf[start+2]
-	ptr := start + 3
-	if flags&0x80 != 0 {
+	// Skip optional fields based on flags
+	if flags&0x80 != 0 { // streamDependenceFlag
 		ptr += 2
 	}
-	if flags&0x40 != 0 {
+	if flags&0x40 != 0 { // URL_Flag
 		if ptr >= end {
-			return
+			return ""
 		}
-		l := int(buf[ptr])
-		ptr += l + 1
+		urlLen := int(data[ptr])
+		ptr += 1 + urlLen
 	}
-	if flags&0x20 != 0 {
+	if flags&0x20 != 0 { // OCRstreamFlag
 		ptr += 2
 	}
-	d.children = decodeDescriptorArray(buf, ptr, end)
+
+	if ptr >= end {
+		return ""
+	}
+
+	// Expect DecoderConfigDescriptor (tag 0x04)
+	if data[ptr] != 0x04 {
+		return ""
+	}
+	ptr++
+	ptr = skipDescriptorLength(data, ptr, end)
+	if ptr < 0 || ptr+13 > end {
+		return ""
+	}
+
+	oti := data[ptr]
+	if oti == 0 {
+		return ""
+	}
+
+	// Format OTI as hex
+	otiStr := hexByte(oti)
+
+	// Skip to DecoderSpecificInfo: OTI(1)+streamType(1)+bufferSizeDB(3)+maxBitrate(4)+avgBitrate(4) = 13
+	ptr += 13
+
+	if ptr >= end || data[ptr] != 0x05 {
+		// No DecoderSpecificInfo, return just OTI
+		return otiStr
+	}
+	ptr++
+	ptr = skipDescriptorLength(data, ptr, end)
+	if ptr < 0 || ptr >= end {
+		return otiStr
+	}
+
+	// Extract audio object type from first byte
+	audioConfig := (data[ptr] & 0xf8) >> 3
+	if audioConfig == 0 {
+		return otiStr
+	}
+	return otiStr + "." + strconv.Itoa(int(audioConfig))
 }
 
-func decodeDecoderConfigDescriptor(d *descriptor, buf []byte, start, end int) {
-	if start >= end {
-		return
+// hexByte formats a byte as a lowercase hex string without leading zeros beyond one digit.
+func hexByte(b byte) string {
+	if b < 16 {
+		return string(hexDigit(b))
 	}
-	d.oti = buf[start]
-	d.children = decodeDescriptorArray(buf, start+13, end)
+	var buf [2]byte
+	buf[0] = hexDigit(b >> 4)
+	buf[1] = hexDigit(b & 0x0f)
+	return string(buf[:])
+}
+
+// skipDescriptorLength skips the variable-length descriptor length field.
+// Returns the new position, or -1 on error.
+func skipDescriptorLength(data []byte, ptr, end int) int {
+	for ptr < end {
+		b := data[ptr]
+		ptr++
+		if b&0x80 == 0 {
+			return ptr
+		}
+	}
+	return -1
 }

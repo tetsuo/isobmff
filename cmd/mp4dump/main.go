@@ -15,155 +15,255 @@ func main() {
 		os.Exit(1)
 	}
 
-	data, err := os.ReadFile(os.Args[1])
+	f, err := os.Open(os.Args[1])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error reading file: %v\n", err)
+		fmt.Fprintf(os.Stderr, "error opening file: %v\n", err)
 		os.Exit(1)
 	}
+	defer f.Close()
 
-	boxes, err := decodeAll(data)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(1)
-	}
+	sc := mp4.NewScanner(f)
+	for sc.Next() {
+		e := sc.Entry()
+		fmt.Printf("[%s] size=%d\n", e.Type, e.Size)
 
-	for _, box := range boxes {
-		printBox(box, 0)
-	}
-}
-
-func decodeAll(data []byte) ([]*mp4.Box, error) {
-	var boxes []*mp4.Box
-	ptr := 0
-	for ptr < len(data) {
-		if len(data)-ptr < 8 {
-			break
-		}
-		box, err := mp4.Decode(data, ptr, len(data))
-		if err != nil {
-			return nil, fmt.Errorf("at offset %d: %w", ptr, err)
-		}
-		boxes = append(boxes, box)
-		ptr += int(box.Size)
-	}
-	return boxes, nil
-}
-
-var containerChildren = map[mp4.BoxType][]mp4.BoxType{
-	mp4.TypeMoov: {mp4.TypeMvhd, mp4.TypeMeta, mp4.TypeTrak, mp4.TypeMvex},
-	mp4.TypeTrak: {mp4.TypeTkhd, mp4.TypeTref, mp4.TypeTrgr, mp4.TypeEdts, mp4.TypeMeta, mp4.TypeMdia, mp4.TypeUdta},
-	mp4.TypeEdts: {mp4.TypeElst},
-	mp4.TypeMdia: {mp4.TypeMdhd, mp4.TypeHdlr, mp4.TypeElng, mp4.TypeMinf},
-	mp4.TypeMinf: {mp4.TypeVmhd, mp4.TypeSmhd, mp4.TypeHmhd, mp4.TypeSthd, mp4.TypeNmhd, mp4.TypeDinf, mp4.TypeStbl},
-	mp4.TypeDinf: {mp4.TypeDref},
-	mp4.TypeStbl: {mp4.TypeStsd, mp4.TypeStts, mp4.TypeCtts, mp4.TypeCslg, mp4.TypeStsc, mp4.TypeStsz, mp4.TypeStz2, mp4.TypeStco, mp4.TypeCo64, mp4.TypeStss, mp4.TypeStsh, mp4.TypePadb, mp4.TypeStdp, mp4.TypeSdtp, mp4.TypeSbgp, mp4.TypeSgpd, mp4.TypeSubs, mp4.TypeSaiz, mp4.TypeSaio},
-	mp4.TypeMvex: {mp4.TypeMehd, mp4.TypeTrex, mp4.TypeLeva},
-	mp4.TypeMoof: {mp4.TypeMfhd, mp4.TypeMeta, mp4.TypeTraf},
-	mp4.TypeTraf: {mp4.TypeTfhd, mp4.TypeTfdt, mp4.TypeTrun, mp4.TypeSbgp, mp4.TypeSgpd, mp4.TypeSubs, mp4.TypeSaiz, mp4.TypeSaio, mp4.TypeMeta},
-}
-
-func printBox(box *mp4.Box, depth int) {
-	indent := strings.Repeat("  ", depth)
-	sizeStr := fmt.Sprintf("%d", box.Size)
-
-	extra := boxInfo(box)
-
-	vf := ""
-	if box.HasFullBox {
-		vf = fmt.Sprintf(" v=%d flags=0x%06x", box.Version, box.Flags)
-	}
-
-	fmt.Printf("%s[%s] size=%s%s%s\n", indent, box.Type, sizeStr, vf, extra)
-
-	// Container children in defined order
-	if box.Children != nil {
-		if order, ok := containerChildren[box.Type]; ok {
-			for _, t := range order {
-				for _, child := range box.ChildList(t) {
-					printBox(child, depth+1)
+		// Only load metadata boxes into memory for deep parsing
+		if e.Type == mp4.TypeMoov || e.Type == mp4.TypeMoof {
+			buf := make([]byte, e.DataSize())
+			if err := sc.ReadBody(buf); err != nil {
+				fmt.Fprintf(os.Stderr, "error reading %s: %v\n", e.Type, err)
+				continue
+			}
+			r := mp4.NewReader(buf)
+			walk(&r, 1)
+		} else if e.Type == mp4.TypeFtyp {
+			buf := make([]byte, e.DataSize())
+			if err := sc.ReadBody(buf); err != nil {
+				fmt.Fprintf(os.Stderr, "error reading ftyp: %v\n", err)
+				continue
+			}
+			f := mp4.ReadFtyp(buf)
+			fmt.Printf("  brand=%s ver=%d", string(f.MajorBrand[:]), f.MinorVersion)
+			if len(f.Compatible) > 0 {
+				fmt.Printf(" compat=[")
+				for i, c := range f.Compatible {
+					if i > 0 {
+						fmt.Printf(",")
+					}
+					fmt.Printf("%s", string(c[:]))
 				}
+				fmt.Printf("]")
+			}
+			fmt.Println()
+		} else if e.Type == mp4.TypeMdat {
+			fmt.Printf("  dataLen=%d\n", e.DataSize())
+		}
+	}
+	if err := sc.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "scan error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func walk(r *mp4.Reader, depth int) {
+	for r.Next() {
+		indent := strings.Repeat("  ", depth)
+
+		fmt.Printf("%s[%s] size=%d", indent, r.Type(), r.Size())
+
+		if mp4.IsFullBox(r.Type()) {
+			fmt.Printf(" v=%d flags=0x%06x", r.Version(), r.Flags())
+		}
+
+		printBoxInfo(r)
+		fmt.Println()
+
+		// Descend into containers
+		if mp4.IsContainerBox(r.Type()) {
+			r.Enter()
+			walk(r, depth+1)
+			r.Exit()
+			continue
+		}
+
+		// Handle stsd: entry count + sub-boxes
+		if r.Type() == mp4.TypeStsd {
+			r.Enter()
+			r.Skip(4) // skip entry count
+			for r.Next() {
+				printSampleEntry(r, depth+1)
+			}
+			r.Exit()
+			continue
+		}
+	}
+}
+
+func printSampleEntry(r *mp4.Reader, depth int) {
+	indent := strings.Repeat("  ", depth)
+
+	switch r.Type() {
+	case mp4.TypeAvc1:
+		v := mp4.ReadVisualSampleEntry(r.Data())
+		fmt.Printf("%s[%s] size=%d %dx%d compressor=%q\n", indent, r.Type(), r.Size(), v.Width, v.Height, v.CompressorName)
+		// Enter to find avcC and other children
+		r.Enter()
+		r.Skip(v.ChildOffset)
+		for r.Next() {
+			childIndent := strings.Repeat("  ", depth+1)
+			if mp4.IsFullBox(r.Type()) {
+				fmt.Printf("%s[%s] size=%d v=%d flags=0x%06x", childIndent, r.Type(), r.Size(), r.Version(), r.Flags())
+			} else {
+				fmt.Printf("%s[%s] size=%d", childIndent, r.Type(), r.Size())
+			}
+			if r.Type() == mp4.TypeAvcC {
+				codec := mp4.ReadAvcC(r.Data())
+				fmt.Printf(" codec=%s", codec)
+			}
+			fmt.Println()
+		}
+		r.Exit()
+
+	case mp4.TypeMp4a:
+		a := mp4.ReadAudioSampleEntry(r.Data())
+		fmt.Printf("%s[%s] size=%d ch=%d sampleSize=%d sampleRate=%d\n", indent, r.Type(), r.Size(), a.ChannelCount, a.SampleSize, a.SampleRate>>16)
+		// Enter to find esds and other children
+		r.Enter()
+		r.Skip(a.ChildOffset)
+		for r.Next() {
+			childIndent := strings.Repeat("  ", depth+1)
+			if mp4.IsFullBox(r.Type()) {
+				fmt.Printf("%s[%s] size=%d v=%d flags=0x%06x", childIndent, r.Type(), r.Size(), r.Version(), r.Flags())
+			} else {
+				fmt.Printf("%s[%s] size=%d", childIndent, r.Type(), r.Size())
+			}
+			if r.Type() == mp4.TypeEsds {
+				codec := mp4.ReadEsdsCodec(r.Data())
+				fmt.Printf(" codec=%s", codec)
+			}
+			fmt.Println()
+		}
+		r.Exit()
+
+	default:
+		fmt.Printf("%s[%s] size=%d", indent, r.Type(), r.Size())
+		if mp4.IsFullBox(r.Type()) {
+			fmt.Printf(" v=%d flags=0x%06x", r.Version(), r.Flags())
+		}
+		fmt.Printf(" (raw %d bytes)\n", len(r.Data()))
+	}
+}
+
+func printBoxInfo(r *mp4.Reader) {
+	switch r.Type() {
+	case mp4.TypeFtyp:
+		f := mp4.ReadFtyp(r.Data())
+		fmt.Printf(" brand=%s ver=%d", string(f.MajorBrand[:]), f.MinorVersion)
+		if len(f.Compatible) > 0 {
+			fmt.Printf(" compat=[")
+			for i, c := range f.Compatible {
+				if i > 0 {
+					fmt.Printf(",")
+				}
+				fmt.Printf("%s", string(c[:]))
+			}
+			fmt.Printf("]")
+		}
+
+	case mp4.TypeMvhd:
+		ts, dur, ntid := r.ReadMvhd()
+		fmt.Printf(" timescale=%d duration=%d nextTrackId=%d", ts, dur, ntid)
+
+	case mp4.TypeTkhd:
+		tid, dur, w, h := r.ReadTkhd()
+		fmt.Printf(" trackId=%d duration=%d size=%dx%d", tid, dur, w>>16, h>>16)
+
+	case mp4.TypeMdhd:
+		ts, dur, lang := r.ReadMdhd()
+		fmt.Printf(" timescale=%d duration=%d lang=%d", ts, dur, lang)
+
+	case mp4.TypeHdlr:
+		ht := r.ReadHdlr()
+		name := r.ReadHdlrName()
+		fmt.Printf(" type=%s name=%q", string(ht[:]), name)
+
+	case mp4.TypeStsd:
+		if len(r.Data()) >= 4 {
+			fmt.Printf(" entries=%d", r.EntryCount())
+		}
+
+	case mp4.TypeStsz:
+		it := mp4.NewStszIter(r.Data())
+		fmt.Printf(" entries=%d", it.Count())
+
+	case mp4.TypeStco, mp4.TypeStss:
+		it := mp4.NewUint32Iter(r.Data())
+		fmt.Printf(" entries=%d", it.Count())
+
+	case mp4.TypeCo64:
+		it := mp4.NewCo64Iter(r.Data())
+		fmt.Printf(" entries=%d", it.Count())
+
+	case mp4.TypeStts:
+		it := mp4.NewSttsIter(r.Data())
+		fmt.Printf(" entries=%d", it.Count())
+
+	case mp4.TypeCtts:
+		it := mp4.NewCttsIter(r.Data())
+		fmt.Printf(" entries=%d", it.Count())
+
+	case mp4.TypeStsc:
+		it := mp4.NewStscIter(r.Data())
+		fmt.Printf(" entries=%d", it.Count())
+
+	case mp4.TypeElst:
+		it := mp4.NewElstIter(r.Data(), r.Version())
+		fmt.Printf(" entries=%d", it.Count())
+
+	case mp4.TypeDref:
+		if len(r.Data()) >= 4 {
+			fmt.Printf(" entries=%d", r.EntryCount())
+		}
+
+	case mp4.TypeMehd:
+		dur := r.ReadMehd()
+		fmt.Printf(" fragmentDuration=%d", dur)
+
+	case mp4.TypeTrex:
+		tid, _, _, _, _ := r.ReadTrex()
+		fmt.Printf(" trackId=%d", tid)
+
+	case mp4.TypeMfhd:
+		seq := r.ReadMfhd()
+		fmt.Printf(" seq=%d", seq)
+
+	case mp4.TypeTfhd:
+		tid := r.ReadTfhd()
+		fmt.Printf(" trackId=%d", tid)
+
+	case mp4.TypeTfdt:
+		bt := r.ReadTfdt()
+		fmt.Printf(" baseMediaDecodeTime=%d", bt)
+
+	case mp4.TypeTrun:
+		it := mp4.NewTrunIter(r.Data(), r.Flags())
+		fmt.Printf(" entries=%d", it.Count())
+		if r.Flags()&mp4.TrunDataOffsetPresent != 0 {
+			fmt.Printf(" dataOffset=%d", it.DataOffset())
+		}
+
+	case mp4.TypeMdat:
+		fmt.Printf(" dataLen=%d", len(r.Data()))
+
+	case mp4.TypeVmhd:
+		// graphicsMode and opcolor
+	case mp4.TypeSmhd:
+		// balance
+	default:
+		if !mp4.IsContainerBox(r.Type()) {
+			if len(r.Data()) > 0 {
+				fmt.Printf(" (%d bytes)", len(r.Data()))
 			}
 		}
-		for _, child := range box.OtherBoxes {
-			printBox(child, depth+1)
-		}
 	}
-
-	// Stsd entries
-	if box.Stsd != nil {
-		for _, entry := range box.Stsd.Entries {
-			printBox(entry, depth+1)
-		}
-	}
-
-	// Visual/audio children
-	if box.Visual != nil {
-		for _, child := range box.Visual.Children {
-			printBox(child, depth+1)
-		}
-	}
-	if box.Audio != nil {
-		for _, child := range box.Audio.Children {
-			printBox(child, depth+1)
-		}
-	}
-}
-
-func boxInfo(box *mp4.Box) string {
-	switch {
-	case box.Ftyp != nil:
-		f := box.Ftyp
-		brands := make([]string, len(f.CompatibleBrands))
-		for i, b := range f.CompatibleBrands {
-			brands[i] = string(b[:])
-		}
-		return fmt.Sprintf(" brand=%s ver=%d compat=[%s]", string(f.Brand[:]), f.BrandVersion, strings.Join(brands, ","))
-	case box.Mvhd != nil:
-		m := box.Mvhd
-		return fmt.Sprintf(" timescale=%d duration=%d nextTrackId=%d", m.TimeScale, m.Duration, m.NextTrackId)
-	case box.Tkhd != nil:
-		t := box.Tkhd
-		return fmt.Sprintf(" trackId=%d duration=%d size=%dx%d", t.TrackId, t.Duration, t.TrackWidth>>16, t.TrackHeight>>16)
-	case box.Mdhd != nil:
-		m := box.Mdhd
-		return fmt.Sprintf(" timescale=%d duration=%d lang=%d", m.TimeScale, m.Duration, m.Language)
-	case box.Hdlr != nil:
-		h := box.Hdlr
-		return fmt.Sprintf(" type=%s name=%q", string(h.HandlerType[:]), h.Name)
-	case box.Stsd != nil:
-		return fmt.Sprintf(" entries=%d", len(box.Stsd.Entries))
-	case box.Stsz != nil:
-		return fmt.Sprintf(" entries=%d", len(box.Stsz.Entries))
-	case box.Stco != nil:
-		return fmt.Sprintf(" entries=%d", len(box.Stco.Entries))
-	case box.Co64 != nil:
-		return fmt.Sprintf(" entries=%d", len(box.Co64.Entries))
-	case box.Stts != nil:
-		return fmt.Sprintf(" entries=%d", len(box.Stts.Entries))
-	case box.Ctts != nil:
-		return fmt.Sprintf(" entries=%d", len(box.Ctts.Entries))
-	case box.Stsc != nil:
-		return fmt.Sprintf(" entries=%d", len(box.Stsc.Entries))
-	case box.Elst != nil:
-		return fmt.Sprintf(" entries=%d", len(box.Elst.Entries))
-	case box.Dref != nil:
-		return fmt.Sprintf(" entries=%d", len(box.Dref.Entries))
-	case box.Visual != nil:
-		v := box.Visual
-		return fmt.Sprintf(" %dx%d compressor=%q children=%d", v.Width, v.Height, v.CompressorName, len(v.Children))
-	case box.Audio != nil:
-		a := box.Audio
-		return fmt.Sprintf(" ch=%d sampleSize=%d sampleRate=%d children=%d", a.ChannelCount, a.SampleSize, a.SampleRate, len(a.Children))
-	case box.AvcC != nil:
-		return fmt.Sprintf(" mimeCodec=%s bufLen=%d", box.AvcC.MimeCodec, len(box.AvcC.Buffer))
-	case box.Esds != nil:
-		return fmt.Sprintf(" mimeCodec=%s bufLen=%d", box.Esds.MimeCodec, len(box.Esds.Buffer))
-	case box.Mdat != nil:
-		return fmt.Sprintf(" dataLen=%d", len(box.Mdat.Buffer))
-	case box.Mfhd != nil:
-		return fmt.Sprintf(" seq=%d", box.Mfhd.SequenceNumber)
-	case box.Buffer != nil:
-		return fmt.Sprintf(" (raw %d bytes)", len(box.Buffer))
-	}
-	return ""
 }
