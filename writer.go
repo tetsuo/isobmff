@@ -1,11 +1,11 @@
-package mp4
+package isobmff
 
 // writerFrame tracks the start offset of a box for size backpatching.
 type writerFrame struct {
 	offset int
 }
 
-// Writer builds MP4 data into a caller-provided fixed-size byte buffer.
+// Writer encodes ISOBMFF boxes into a byte buffer.
 type Writer struct {
 	buf   []byte
 	pos   int
@@ -443,10 +443,7 @@ func (w *Writer) WriteVisualSampleEntry(dataRefIdx, width, height, frameCount, d
 	w.putUint32(0x00480000) // vresolution 72 dpi
 	w.putZeros(4)           // reserved
 	w.putUint16(frameCount) // frame count
-	nameLen := len(compressor)
-	if nameLen > 31 {
-		nameLen = 31
-	}
+	nameLen := min(len(compressor), 31)
 	w.putUint8(byte(nameLen))
 	w.putFixedString(compressor, 31)
 	w.putUint16(depth)  // depth

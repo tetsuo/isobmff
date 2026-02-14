@@ -1,4 +1,4 @@
-package mp4
+package isobmff
 
 // maxDepth limits the reader/writer nesting stack.
 const maxDepth = 16
@@ -9,7 +9,7 @@ type readerFrame struct {
 	boxEnd int // position to resume after exiting this container
 }
 
-// Reader provides streaming parsing of MP4 boxes.
+// Reader provides streaming parsing of ISOBMFF boxes.
 type Reader struct {
 	buf []byte
 	pos int // next position to parse from

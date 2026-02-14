@@ -1,13 +1,13 @@
-# mp4dump
+# mfdump
 
-`mp4dump` reads an MP4 file and dumps its box structure in a human-readable format.
+`mfdump` reads a media file (e.g., MP4) and dumps its box structure in a human-readable format.
 
 **Example:**
 
-Pipe the output of `mp4dump` to [`indentree`](https://github.com/tetsuo/indentree) to visualize the box hierarchy:
+Pipe the output of `mfdump` to [`indentree`](https://github.com/tetsuo/indentree) to visualize the box hierarchy:
 
 ```
-mp4dump "big-buck-bunny-1080p-60fps-30sec.mp4" | indentree
+mfdump "big-buck-bunny-1080p-60fps-30sec.mp4" | indentree
 ```
 
 Output:
