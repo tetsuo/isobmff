@@ -6,7 +6,7 @@
 
 Pipe the output of `mp4dump` to [`indentree`](https://github.com/tetsuo/indentree) to visualize the box hierarchy:
 
-```
+```sh
 mp4dump "big-buck-bunny-1080p-60fps-30sec.mp4" | indentree
 ```
 
@@ -65,4 +65,10 @@ Output:
       └─ [meta] size=386 v=0 flags=0x000000
          ├─ [hdlr] size=33 v=0 flags=0x000000 type=mdir name=""
          └─ [ilst] size=341 (333 bytes)
+```
+
+You can also output in JSON format:
+
+```sh
+mp4dump --format=json "big-buck-bunny-1080p-60fps-30sec.mp4"
 ```
