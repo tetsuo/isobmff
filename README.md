@@ -1,3 +1,3 @@
-# bmff
+# mp4
 
-Go implementation of ISO Base Media File Format (ISO/IEC 14496-12) box codec and accompanying tools.
+Go implementation of ISO Base Media File Format (ISO/IEC 14496-12) box codec.

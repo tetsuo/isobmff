@@ -108,3 +108,10 @@ func skipDescriptorLength(data []byte, ptr, end int) int {
 	}
 	return -1
 }
+
+const hexChars = "0123456789abcdef"
+
+// hexDigit returns the lowercase hex character for a 4-bit nibble.
+func hexDigit(b byte) byte {
+	return hexChars[b&0x0f]
+}

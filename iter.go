@@ -539,10 +539,3 @@ func ReadAvcC(data []byte) string {
 	buf[5] = hexDigit(data[3] & 0x0f)
 	return string(buf[:])
 }
-
-const hexChars = "0123456789abcdef"
-
-// hexDigit returns the lowercase hex character for a 4-bit nibble.
-func hexDigit(b byte) byte {
-	return hexChars[b&0x0f]
-}

@@ -289,11 +289,12 @@ func (r *Reader) ReadHdlr() [4]byte {
 // ReadHdlrName extracts the handler name from an hdlr box.
 func (r *Reader) ReadHdlrName() string {
 	data := r.Data()
-	if len(data) <= 20 {
+	n := len(data)
+	if n <= 20 {
 		return ""
 	}
 	end := 20
-	for end < len(data) && data[end] != 0 {
+	for end < n && data[end] != 0 {
 		end++
 	}
 	return string(data[20:end])

@@ -52,8 +52,9 @@ func (w *Writer) Err() error { return w.err }
 // Write appends raw bytes. Implements io.Writer.
 func (w *Writer) Write(p []byte) (int, error) {
 	copy(w.buf[w.pos:], p)
-	w.pos += len(p)
-	return len(p), nil
+	n := len(p)
+	w.pos += n
+	return n, nil
 }
 
 // putUint8 appends a single byte.
