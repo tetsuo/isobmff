@@ -81,10 +81,11 @@ func (w *Writer) putFixedString(s string, length int) {
 	w.pos += length
 }
 
-// Reset resets the writer position to 0.
+// Reset resets the writer position to 0 and clears any error state.
 func (w *Writer) Reset() {
 	w.pos = 0
 	w.depth = 0
+	w.err = nil
 }
 
 // StartBox begins a new box. Write content, then call EndBox.
