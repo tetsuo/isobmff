@@ -9,6 +9,7 @@ type writerFrame struct {
 type Writer struct {
 	buf   []byte
 	pos   int
+	err   error // first deferred error
 	stack [maxDepth]writerFrame
 	depth int
 }
@@ -25,6 +26,9 @@ func (w *Writer) Bytes() []byte {
 
 // Len returns the number of bytes written.
 func (w *Writer) Len() int { return w.pos }
+
+// Err returns the first deferred error encountered during writing.
+func (w *Writer) Err() error { return w.err }
 
 // Write appends raw bytes. Implements io.Writer.
 func (w *Writer) Write(p []byte) (int, error) {
