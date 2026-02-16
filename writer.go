@@ -1,11 +1,15 @@
 package bmff
 
+import "errors"
+
 // writerFrame tracks the start offset of a box for size backpatching.
 type writerFrame struct {
 	offset int
 }
 
-// Writer encodes ISOBMFF boxes into a byte buffer.
+// ErrBoxTooLarge is returned by [Writer.Err] when a box exceeds the 4 GB
+// limit for standard (32-bit) box sizes.
+var ErrBoxTooLarge = errors.New("mp4: box size exceeds 4GB limit")
 type Writer struct {
 	buf   []byte
 	pos   int
@@ -111,8 +115,12 @@ func (w *Writer) StartFullBox(t BoxType, version uint8, flags uint32) {
 func (w *Writer) EndBox() {
 	w.depth--
 	f := w.stack[w.depth]
-	size := uint32(w.pos - f.offset)
-	be.PutUint32(w.buf[f.offset:], size)
+	size := w.pos - f.offset
+	if w.err == nil && uint64(size) > uint64(uint32Max) {
+		w.err = ErrBoxTooLarge
+		return
+	}
+	be.PutUint32(w.buf[f.offset:], uint32(size))
 }
 
 // WriteFtyp writes a complete ftyp box.
