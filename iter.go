@@ -1,4 +1,4 @@
-package bmff
+package mp4
 
 import (
 	"encoding/binary"

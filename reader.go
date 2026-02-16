@@ -1,4 +1,4 @@
-package bmff
+package mp4
 
 // maxDepth limits the reader/writer nesting stack.
 const maxDepth = 16
@@ -9,7 +9,48 @@ type readerFrame struct {
 	boxEnd int // position to resume after exiting this container
 }
 
-// Reader provides streaming parsing of ISOBMFF boxes.
+// Reader provides hierarchical, in-memory parsing of box data. After loading
+// a box's bytes (e.g., from Scanner), create a Reader to iterate children,
+// descend into containers, and extract typed fields.
+//
+// Iterating over top-level boxes:
+//
+//	r := mp4.NewReader(buf)
+//	for r.Next() {
+//	    fmt.Printf("box: %s size: %d\n", r.Type(), r.Size())
+//	}
+//
+// For container boxes, use Enter/Exit to descend into children:
+//
+//	for r.Next() {
+//	    if r.Type() == mp4.TypeMoov {
+//	        r.Enter()              // descend into moov
+//	        for r.Next() {         // iterate moov children
+//	            // process trak, mvhd, etc.
+//	        }
+//	        r.Exit()               // return to top level
+//	    }
+//	}
+//
+// Some boxes have an entry count before child boxes (stsd, dref).
+// Use Skip(4) after Enter to skip past the count field:
+//
+//	r.Enter()
+//	r.Skip(4) // skip entry count
+//	for r.Next() {
+//	    // process entries
+//	}
+//	r.Exit()
+//
+// Sample entry boxes have fixed-size headers before child boxes.
+// Use Skip with the header size (avc1=78, mp4a=28):
+//
+//	r.Enter()
+//	r.Skip(78)          // skip avc1 fixed header
+//	for r.Next() {
+//	    // process avcC, pasp, etc.
+//	}
+//	r.Exit()
 type Reader struct {
 	buf []byte
 	pos int // next position to parse from

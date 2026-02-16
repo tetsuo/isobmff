@@ -1,4 +1,4 @@
-package bmff
+package mp4
 
 import "errors"
 
@@ -10,6 +10,21 @@ type writerFrame struct {
 // ErrBoxTooLarge is returned by [Writer.Err] when a box exceeds the 4 GB
 // limit for standard (32-bit) box sizes.
 var ErrBoxTooLarge = errors.New("mp4: box size exceeds 4GB limit")
+
+// Writer encodes ISOBMFF boxes into the provided buffer.
+//
+// The buffer must be large enough to hold all written data; writes beyond
+// the buffer boundary will panic.
+//
+// Use [Writer.StartBox] and [Writer.EndBox] to write nested boxes:
+//
+//	w := mp4.NewWriter(buf)
+//	w.StartBox(mp4.TypeMoov)
+//	w.WriteMvhd(1000, 30000, 3)
+//	w.EndBox()
+//	output := w.Bytes()
+//
+// After all writes, check [Writer.Err] for errors.
 type Writer struct {
 	buf   []byte
 	pos   int
@@ -414,9 +429,6 @@ func (w *Writer) WriteTfdt(baseMediaDecodeTime uint64) {
 		w.StartFullBox(TypeTfdt, 0, 0)
 		w.putUint32(uint32(baseMediaDecodeTime))
 	}
-	// TODO: maybe always use version 1 (64-bit)?
-	// w.StartFullBox(TypeTfdt, 1, 0)
-	// w.putUint64(baseMediaDecodeTime)
 	w.EndBox()
 }
 

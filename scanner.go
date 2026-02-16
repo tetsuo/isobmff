@@ -1,4 +1,4 @@
-package bmff
+package mp4
 
 import "io"
 
@@ -15,21 +15,26 @@ func (e ScanEntry) DataSize() int64 {
 	return e.Size - int64(e.HeaderSize)
 }
 
-// Scanner reads top-level box headers from an io.ReadSeeker without
-// loading box contents into memory. This lets callers discover box
-// positions and sizes, then selectively read only the boxes they need
-// (e.g. moov) into a buffer for parsing with NewReader.
+// DataOffset returns the byte offset where the box data begins (after the header).
+// Use it with [io.ReaderAt.ReadAt] to read box data without seeking.
+func (e ScanEntry) DataOffset() int64 {
+	return e.Offset + int64(e.HeaderSize)
+}
+
+// Scanner reads top-level box headers from an [io.ReadSeeker] without loading
+// box contents into memory. Use it to discover box positions and sizes, then
+// selectively read only the boxes you need.
 //
 // Typical usage:
 //
 //	f, _ := os.Open("video.mp4")
-//	sc := bmff.NewScanner(f)
+//	sc := mp4.NewScanner(f)
 //	for sc.Next() {
 //	    e := sc.Entry()
-//	    if e.Type == bmff.TypeMoov {
+//	    if e.Type == mp4.TypeMoov {
 //	        buf := make([]byte, e.DataSize())
 //	        sc.ReadBody(buf)
-//	        r := bmff.NewReader(buf)
+//	        r := mp4.NewReader(buf)
 //	        // parse moov contents...
 //	    }
 //	}
